@@ -20,10 +20,10 @@ module.exports = {
     ),
 
   async execute(interaction) {
-    // Mencegah "The application did not respond" dengan memberi sinyal tunggu ke Discord
+    // Mencegah error 'Application did not respond' dengan memberi sinyal tunggu ke Discord
     await interaction.deferReply({ ephemeral: true });
 
-    // Cek Akses (Hanya Owner & Admin)
+    // Proteksi Akses (Hanya Owner & Admin)
     const isOwner = interaction.guild.ownerId === interaction.user.id;
     const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.Administrator);
 
@@ -38,8 +38,11 @@ module.exports = {
 
     try {
       const formattedText = textToSend.replace(/\\n/g, '\n');
+
+      // Kirim pesan ke channel tujuan
       await targetChannel.send(formattedText);
 
+      // Balas konfirmasi privat ke admin
       await interaction.editReply({
         content: `✅ Pesan berhasil dikirim ke ${targetChannel}!`
       });
