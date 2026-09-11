@@ -1,13 +1,10 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, AttachmentBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, Collection } = require('discord.js');
 const { QuickDB } = require('quick.db');
-const { createCanvas, loadImage } = require('canvas');
+const fs = require('fs');
 const path = require('path');
 
-// 1. Inisialisasi Database (SQLite)
 const db = new QuickDB();
-
-// 2. Inisialisasi Discord Client
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -17,122 +14,64 @@ const client = new Client({
   ]
 });
 
+client.commands = new Collection();
 const cooldowns = new Set();
 
-// Event ketika bot berhasil login
+// Automatic Command Loader dari folder /commands
+const commandsPath = path.join(__dirname, 'commands');
+if (fs.existsSync(commandsPath)) {
+  const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
+  for (const file of commandFiles) {
+    const filePath = path.join(commandsPath, file);
+    const command = require(filePath);
+    client.commands.set(command.name, command);
+  }
+}
+
 client.once('ready', () => {
   console.log(`🚀 Bot Blaze Squad Aktif & Online sebagai ${client.user.tag}!`);
 });
 
-// Helper untuk membersihkan karakter non-ASCII/Emoji agar tidak bikin kotak-kotak di Linux Canvas
-function cleanUsername(name) {
-  const cleaned = name.replace(/[^\x00-\x7F]/g, "").trim();
-  return cleaned.length > 0 ? cleaned : "User";
-}
-
-// 3. Sistem Penambahan XP dari Chat
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.guild) return;
 
   const userId = message.author.id;
 
-  // Anti-spam cooldown (1 menit per XP)
+  // 1. Sistem XP Otomatis dari Chat
   if (!cooldowns.has(userId)) {
     cooldowns.add(userId);
     setTimeout(() => cooldowns.delete(userId), 60000);
 
-    const xpToAdd = Math.floor(Math.random() * 11) + 15; // 15 - 25 XP
+    const xpToAdd = Math.floor(Math.random() * 11) + 15;
     await db.add(`xp_${userId}`, xpToAdd);
 
-    // Pastikan user tercatat di daftar member
     let userList = (await db.get('user_list')) || [];
     if (!userList.includes(userId)) {
       await db.push('user_list', userId);
     }
   }
 
-  // 4. Perintah Leaderboard (!top)
-  if (message.content.toLowerCase() === '!top') {
-    try {
-      const userList = (await db.get('user_list')) || [];
-      const leaderData = [];
+  // 2. Pembaca Perintah Prefix (!)
+  if (!message.content.startsWith('!')) return;
 
-      for (const id of userList) {
-        const xp = (await db.get(`xp_${id}`)) || 0;
-        leaderData.push({ id, xp });
-      }
+  const args = message.content.slice(1).trim().split(/ +/);
+  const commandName = args.shift().toLowerCase();
 
-      // Urutkan XP dari tertinggi ke terendah
-      leaderData.sort((a, b) => b.xp - a.xp);
-      const top5 = leaderData.slice(0, 5);
+  const command = client.commands.get(commandName);
+  if (!command) return;
 
-      if (top5.length === 0) {
-        return message.reply('Belum ada data XP yang tercatat!');
-      }
-
-      // MEMBUAT CANVAS LEADERBOARD
-      const canvas = createCanvas(800, 500);
-      const ctx = canvas.getContext('2d');
-
-      // Load gambar background dari folder assets
-      const bgPath = path.join(__dirname, 'assets', 'leaderboard.png');
-      try {
-        const background = await loadImage(bgPath);
-        ctx.drawImage(background, 0, 0, canvas.width, canvas.height);
-      } catch (err) {
-        // Fallback jika gambar background tidak ada
-        ctx.fillStyle = '#1e1e2f';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-      }
-
-      // Gunakan font Linux standar yang pasti ter-render dengan rapi
-      const mainFont = 'serif';
-
-      // Render Judul
-      ctx.fillStyle = '#ffffff';
-      ctx.font = `bold 32px ${mainFont}`;
-      ctx.fillText('BLAZE SQUAD LEADERBOARD', 180, 60);
-
-      ctx.font = `bold 22px ${mainFont}`;
-      let yPos = 130;
-
-      for (let i = 0; i < top5.length; i++) {
-        const item = top5[i];
-        let memberName = 'Unknown User';
-
-        try {
-          const fetchedMember = await message.guild.members.fetch(item.id);
-          memberName = cleanUsername(fetchedMember.displayName);
-        } catch {
-          memberName = `User (${item.id.slice(0, 5)}...)`;
-        }
-
-        // Warna Rank
-        ctx.fillStyle = i === 0 ? '#ffd700' : i === 1 ? '#c0c0c0' : i === 2 ? '#cd7f32' : '#ffffff';
-        ctx.fillText(`#${i + 1}  ${memberName}`, 80, yPos);
-
-        // Warna XP
-        ctx.fillStyle = '#ffaa00';
-        ctx.fillText(`${item.xp} XP`, 600, yPos);
-
-        yPos += 70;
-      }
-
-      const attachment = new AttachmentBuilder(canvas.toBuffer('image/png'), { name: 'leaderboard.png' });
-      await message.reply({ files: [attachment] });
-
-    } catch (error) {
-      console.error('Error saat membuat leaderboard:', error);
-      message.reply('Terjadi kesalahan saat memproses leaderboard.');
-    }
+  try {
+    // Eksekusi file command secara independen
+    await command.execute(message, args, db);
+  } catch (error) {
+    console.error(`Error pada perintah !${commandName}:`, error);
+    message.reply('Terjadi kesalahan saat menjalankan perintah tersebut!');
   }
 });
 
-// 5. PENANGANAN TOKEN FLEKSIBEL (RAILWAY / LOCAL)
 const token = process.env.TOKEN || process.env.DISCORD_TOKEN;
-
 if (!token) {
-  console.error("❌ ERROR CRITICAL: Token tidak ditemukan di Environment Variables / Railway Variables!");
+  console.error("❌ ERROR CRITICAL: Token tidak ditemukan!");
   process.exit(1);
 }
 
