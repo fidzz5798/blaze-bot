@@ -24,6 +24,12 @@ client.once('ready', () => {
   console.log(`🚀 Bot Blaze Squad Aktif & Online sebagai ${client.user.tag}!`);
 });
 
+// Helper untuk membersihkan karakter non-ASCII/Emoji agar tidak bikin kotak-kotak di Linux Canvas
+function cleanUsername(name) {
+  const cleaned = name.replace(/[^\x00-\x7F]/g, "").trim();
+  return cleaned.length > 0 ? cleaned : "User";
+}
+
 // 3. Sistem Penambahan XP dari Chat
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.guild) return;
@@ -79,12 +85,15 @@ client.on('messageCreate', async (message) => {
         ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
 
-      // Render Judul & Top 5 Member
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 32px Sans-serif';
-      ctx.fillText('BLAZE SQUAD LEADERBOARD', 200, 60);
+      // Gunakan font Linux standar yang pasti ter-render dengan rapi
+      const mainFont = 'serif';
 
-      ctx.font = '22px Sans-serif';
+      // Render Judul
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `bold 32px ${mainFont}`;
+      ctx.fillText('BLAZE SQUAD LEADERBOARD', 180, 60);
+
+      ctx.font = `bold 22px ${mainFont}`;
       let yPos = 130;
 
       for (let i = 0; i < top5.length; i++) {
@@ -93,14 +102,16 @@ client.on('messageCreate', async (message) => {
 
         try {
           const fetchedMember = await message.guild.members.fetch(item.id);
-          memberName = fetchedMember.displayName;
+          memberName = cleanUsername(fetchedMember.displayName);
         } catch {
           memberName = `User (${item.id.slice(0, 5)}...)`;
         }
 
+        // Warna Rank
         ctx.fillStyle = i === 0 ? '#ffd700' : i === 1 ? '#c0c0c0' : i === 2 ? '#cd7f32' : '#ffffff';
         ctx.fillText(`#${i + 1}  ${memberName}`, 80, yPos);
 
+        // Warna XP
         ctx.fillStyle = '#ffaa00';
         ctx.fillText(`${item.xp} XP`, 600, yPos);
 
