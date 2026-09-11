@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, Collection } = require('discord.js');
+const { Client, GatewayIntentBits, Collection, REST, Routes } = require('discord.js');
 const { QuickDB } = require('quick.db');
 const fs = require('fs');
 const path = require('path');
@@ -16,6 +16,7 @@ const client = new Client({
 
 client.commands = new Collection();
 const cooldowns = new Set();
+const slashCommandsData = [];
 
 // Automatic Command Loader dari folder /commands
 const commandsPath = path.join(__dirname, 'commands');
@@ -25,19 +26,60 @@ if (fs.existsSync(commandsPath)) {
     const filePath = path.join(commandsPath, file);
     const command = require(filePath);
     client.commands.set(command.name, command);
+
+    // Kumpulkan data Slash Command jika ada
+    if (command.data) {
+      slashCommandsData.push(command.data.toJSON());
+    }
   }
 }
 
-client.once('ready', () => {
+// Register Slash Command saat Bot Ready
+client.once('ready', async () => {
   console.log(`🚀 Bot Blaze Squad Aktif & Online sebagai ${client.user.tag}!`);
+
+  // Register Slash Commands ke Discord API
+  const token = process.env.TOKEN || process.env.DISCORD_TOKEN;
+  if (token && slashCommandsData.length > 0) {
+    const rest = new REST({ version: '10' }).setToken(token);
+    try {
+      console.log('🔄 Mendaftarkan Slash Commands...');
+      await rest.put(
+        Routes.applicationCommands(client.user.id),
+        { body: slashCommandsData }
+      );
+      console.log('✅ Slash Commands berhasil didaftarkan!');
+    } catch (error) {
+      console.error('❌ Gagal mendaftarkan Slash Commands:', error);
+    }
+  }
 });
 
+// Handler untuk Interaction (Slash Command)
+client.on('interactionCreate', async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+
+  const command = client.commands.get(interaction.commandName);
+  if (!command || !command.executeSlash) return;
+
+  try {
+    await command.executeSlash(interaction);
+  } catch (error) {
+    console.error(`Error pada slash command /${interaction.commandName}:`, error);
+    await interaction.reply({
+      content: 'Terjadi kesalahan saat menjalankan perintah!',
+      ephemeral: true
+    }).catch(() => {});
+  }
+});
+
+// Handler untuk Pesan / Prefix Commands (!) & XP
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.guild) return;
 
   const userId = message.author.id;
 
-  // 1. Sistem XP Otomatis dari Chat
+  // Sistem XP Otomatis
   if (!cooldowns.has(userId)) {
     cooldowns.add(userId);
     setTimeout(() => cooldowns.delete(userId), 60000);
@@ -51,17 +93,16 @@ client.on('messageCreate', async (message) => {
     }
   }
 
-  // 2. Pembaca Perintah Prefix (!)
+  // Prefix Command Checker (!)
   if (!message.content.startsWith('!')) return;
 
   const args = message.content.slice(1).trim().split(/ +/);
   const commandName = args.shift().toLowerCase();
 
   const command = client.commands.get(commandName);
-  if (!command) return;
+  if (!command || !command.execute) return;
 
   try {
-    // Eksekusi file command secara independen
     await command.execute(message, args, db);
   } catch (error) {
     console.error(`Error pada perintah !${commandName}:`, error);

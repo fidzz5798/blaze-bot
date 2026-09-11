@@ -1,30 +1,59 @@
+const { SlashCommandBuilder, PermissionFlagsBits, ChannelType } = require('discord.js');
+
 module.exports = {
-  name: 'say',
-  description: 'Kirim pengumuman/rules kustom ke channel pilihan',
-  async execute(message, args) {
-    // Cek izin (Hanya Admin / Manage Messages)
-    if (!message.member.permissions.has('ManageMessages')) {
-      return message.reply('❌ Kamu tidak punya izin untuk menggunakan perintah ini!');
+  // 1. Buat Struktur Slash Command
+  data: new SlashCommandBuilder()
+    .setName('say')
+    .setDescription('Kirim pengumuman/rules kustom ke channel pilihan')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator) // Otomatis batasi cuma Admin/Owner
+    .addChannelOption(option =>
+      option
+        .setName('saluran')
+        .setDescription('Pilih saluran tempat pesan akan dikirim.')
+        .addChannelTypes(ChannelType.GuildText) // Cuma channel teks
+        .setRequired(true)
+    )
+    .addStringOption(option =>
+      option
+        .setName('pesan')
+        .setDescription('Isi pesan pengumuman yang ingin dikirim')
+        .setRequired(true)
+    ),
+
+  async executeSlash(interaction) {
+    // 2. Proteksi Akses Tambahan (Hanya Owner & Admin)
+    const isOwner = interaction.guild.ownerId === interaction.user.id;
+    const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.Administrator);
+
+    if (!isOwner && !isAdmin) {
+      return interaction.reply({
+        content: '❌ Hanya **Owner** dan **Admin** yang bisa menggunakan perintah ini!',
+        ephemeral: true
+      });
     }
 
-    // Ambil channel yang di-tag
-    const targetChannel = message.mentions.channels.first();
-    if (!targetChannel) {
-      return message.reply('❌ Format salah! Contoh penggunaan: `!say #announcement Halo kawan-kawan!`');
-    }
-
-    // Ambil teks pesan (mengabaikan tag channel)
-    const textToSend = args.slice(1).join(' ');
-    if (!textToSend) {
-      return message.reply('❌ Tolong tuliskan pesan yang ingin dikirim!');
-    }
+    // 3. Ambil Input dari Slash Command
+    const targetChannel = interaction.options.getChannel('saluran');
+    const textToSend = interaction.options.getString('pesan');
 
     try {
-      await targetChannel.send(textToSend);
-      await message.reply(`✅ Pesan berhasil dikirim ke ${targetChannel}!`);
+      // Format pesan (ganti \n menjadi baris baru)
+      const formattedText = textToSend.replace(/\\n/g, '\n');
+
+      // Kirim ke channel tujuan
+      await targetChannel.send(formattedText);
+
+      // Respon privat ke admin agar tidak mengotori chat
+      await interaction.reply({
+        content: `✅ Pesan berhasil dikirim ke ${targetChannel}!`,
+        ephemeral: true
+      });
     } catch (err) {
-      console.error('Gagal mengirim pesan:', err);
-      message.reply('❌ Gagal mengirim pesan. Pastikan bot punya izin di channel tersebut!');
+      console.error('Gagal mengirim pesan via slash command:', err);
+      await interaction.reply({
+        content: '❌ Gagal mengirim pesan. Pastikan bot punya izin di channel tersebut!',
+        ephemeral: true
+      });
     }
   }
 };
